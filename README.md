@@ -7,7 +7,7 @@ This is a Repo to store the Stat461 project
 
 `project.tex` is the main file that holds the report
 
-`references.bib` is a companion file to [project.tex] that hold all the references for biber
+`references.bib` is a companion file to `project.tex` that hold all the references for biber
 
 
 These two files are the core of the report.
