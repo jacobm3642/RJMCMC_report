@@ -1,0 +1,244 @@
+---
+title: "HST_RJMCMC"
+author: "jmi161(64562161)"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(FITSio)
+library(LaplacesDemon)
+```
+
+```{r}
+fits_data <- readFITS("./v1/hlsp_phat_hst_wfc3-ir_12058-m31-b01-f06_f110w_v1_drz.fits", hdu = 3)
+
+hst_matrix <- fits_data$imDat
+
+min_val <- min(hst_matrix, na.rm = TRUE)
+shifted_matrix <- hst_matrix - min_val + 1
+
+log_matrix <- log10(shifted_matrix)
+
+image(log_matrix, col = gray.colors(256), useRaster = TRUE)
+```
+
+```{r}
+run_fixed_n_sampler <- function(
+  hst_matrix,
+  num_stars = 18,
+  iterations = 10000,
+  psf_sigma = 1.2,
+  noise_sd = NULL,
+  position_step = 0.4,
+  log_amplitude_step = 0.1,
+  burn_in = floor(iterations / 2),
+  thin = 10
+) {
+  m <- as.matrix(hst_matrix)
+  valid <- is.finite(m)
+
+  if (!any(valid)) {
+    stop("The image has no finite pixels.")
+  }
+
+  background <- median(m[valid])
+
+  # Approximate noise from adjacent-pixel differences.
+  # Prefer a supplied noise estimate for scientific analysis.
+  if (is.null(noise_sd)) {
+    differences <- m[-1, , drop = FALSE] -
+      m[-nrow(m), , drop = FALSE]
+    noise_sd <- mad(
+      differences[is.finite(differences)]
+    ) / sqrt(2)
+  }
+
+if (is.null(noise_sd)) {
+  # Exclude non-finite values and exact zeros, commonly used
+  # for unobserved pixels in drizzled images.
+  usable <- is.finite(m) & m != 0
+
+  left <- m[-nrow(m), , drop = FALSE]
+  right <- m[-1, , drop = FALSE]
+
+  valid_pairs <- usable[-nrow(m), , drop = FALSE] &
+    usable[-1, , drop = FALSE]
+
+  differences <- right[valid_pairs] - left[valid_pairs]
+
+  if (length(differences) < 100) {
+    stop(
+      "Too few usable pixel pairs. Check the science HDU ",
+      "or supply noise_sd from a background region."
+    )
+  }
+
+  noise_sd <- mad(differences) / sqrt(2)
+}
+
+  if (burn_in >= iterations || thin < 1 || psf_sigma <= 0) {
+    stop("Check burn_in, thin, and psf_sigma.")
+  }
+
+  nx <- nrow(m)
+  ny <- ncol(m)
+
+  # Same indexing convention as image(): first index is x.
+  pixels <- which(valid, arr.ind = TRUE)
+  pixel_x <- pixels[, 1]
+  pixel_y <- pixels[, 2]
+  observed <- m[valid]
+
+  psf <- function(x, y) {
+    exp(
+      -((pixel_x - x)^2 + (pixel_y - y)^2) /
+        (2 * psf_sigma^2)
+    )
+  }
+
+  # Use the previous peak finder for initialization only.
+  initial <- find_stars(
+    m,
+    num_stars = num_stars,
+    min_separation = max(2, 3 * psf_sigma)
+  )$final_state
+
+  if (length(initial$x) != num_stars) {
+    stop("Could not initialize all requested stars.")
+  }
+
+  state <- initial
+
+  initial_pixels <- m[cbind(round(state$x), round(state$y))]
+  state$log_amplitude <- log(
+    pmax(initial_pixels - background, noise_sd)
+  )
+
+  # Proper, bounded uniform prior on log amplitude.
+  # These default bounds should be checked for your dataset.
+  amplitude_scale <- max(
+    max(observed) - background,
+    noise_sd
+  )
+  log_amplitude_bounds <- log(
+    c(noise_sd / 100, amplitude_scale * 100)
+  )
+
+  model <- rep(background, length(observed))
+
+  for (j in seq_len(num_stars)) {
+    model <- model +
+      exp(state$log_amplitude[j]) * psf(state$x[j], state$y[j])
+  }
+
+  residual <- observed - model
+  accepted <- 0L
+
+  save_at <- seq.int(burn_in + 1L, iterations, by = thin)
+  history_x <- matrix(NA_real_, length(save_at), num_stars)
+  history_y <- matrix(NA_real_, length(save_at), num_stars)
+  history_amplitude <- matrix(
+    NA_real_,
+    length(save_at),
+    num_stars
+  )
+  saved <- 0L
+
+  for (iter in seq_len(iterations)) {
+    j <- sample.int(num_stars, 1)
+
+    proposed_x <- state$x[j] + rnorm(1, sd = position_step)
+    proposed_y <- state$y[j] + rnorm(1, sd = position_step)
+    proposed_log_a <- state$log_amplitude[j] +
+      rnorm(1, sd = log_amplitude_step)
+
+    inside_prior <- proposed_x >= 1 && proposed_x <= nx &&
+      proposed_y >= 1 && proposed_y <= ny &&
+      proposed_log_a >= log_amplitude_bounds[1] &&
+      proposed_log_a <= log_amplitude_bounds[2]
+
+    if (inside_prior) {
+      old_source <- exp(state$log_amplitude[j]) *
+        psf(state$x[j], state$y[j])
+
+      new_source <- exp(proposed_log_a) *
+        psf(proposed_x, proposed_y)
+
+      change <- new_source - old_source
+
+      # Gaussian log-likelihood difference.
+      # Symmetric proposals and uniform priors in x, y, log(A)
+      # mean the proposal and prior ratios cancel within bounds.
+      log_acceptance <- (
+        sum(residual * change) - 0.5 * sum(change^2)
+      ) / noise_sd^2
+
+      if (log(runif(1)) < min(0, log_acceptance)) {
+        state$x[j] <- proposed_x
+        state$y[j] <- proposed_y
+        state$log_amplitude[j] <- proposed_log_a
+        residual <- residual - change
+        accepted <- accepted + 1L
+      }
+    }
+
+    if (iter > burn_in && (iter - burn_in - 1L) %% thin == 0L) {
+      saved <- saved + 1L
+      history_x[saved, ] <- state$x
+      history_y[saved, ] <- state$y
+      history_amplitude[saved, ] <- exp(state$log_amplitude)
+    }
+  }
+
+  list(
+    final_state = list(
+      x = state$x,
+      y = state$y,
+      amplitude = exp(state$log_amplitude)
+    ),
+    history_x = history_x,
+    history_y = history_y,
+    history_amplitude = history_amplitude,
+    acceptance_rate = accepted / iterations,
+    background = background,
+    noise_sd = noise_sd
+  )
+}
+```
+
+```{r}
+results <- run_fixed_n_sampler(
+  hst_matrix = hst_matrix,
+  num_stars = 18,
+  iterations = 100000
+)
+
+img_w <- ncol(log_matrix)
+img_h <- nrow(log_matrix)
+
+log_matrix <- log10(
+  hst_matrix - min(hst_matrix, na.rm = TRUE) + 1
+)
+
+image(
+  x = seq_len(nrow(log_matrix)),
+  y = seq_len(ncol(log_matrix)),
+  z = log_matrix,
+  col = gray.colors(256, start = 0, end = 1),
+  useRaster = TRUE,
+  asp = 1,
+  xlab = "X Pixels",
+  ylab = "Y Pixels"
+)
+
+points(
+  results$final_state$x,
+  results$final_state$y,
+  col = "cyan",
+  pch = 3,
+  cex = 1.5,
+  lwd = 2
+)
+```

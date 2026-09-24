@@ -1,0 +1,55 @@
+
+1) Introduction
+
+Introduce the method.
+What is it about?
+When and why was it proposed? 
+What kinds of problems is it intended to solve?
+
+2) Method
+
+Describe the theory behind the method. Introduce the model and its assumptions carefully, and define all notation. Explain the Bayesian formulation, including the likelihood, priors, and quantities of interest.
+
+The aim here is not simply to reproduce equations from a paper or textbook: explain what they mean.
+
+-------------- plan --------------------
+2)
+intro the method
+2.1)
+explain the Metropolis–Hastings algorithm (just to give context)
+2.2)
+explain what changes we will make
+2.3)
+explain the consequence of those changes
+2.4)
+bring it all together for a final formulation of the method
+-----------------------------------------
+
+3) Example
+
+Describe your dataset, identify the research question and explain why the method is appropriate for the problem.
+
+Apply the method and present the results. Do not simply reproduce software output: explain and interpret what you have found. Remember to report uncertainty as well as point estimates, where appropriate.
+
+Include appropriate model checking, diagnostics, or assessment of model fit where relevant to the method you have chosen.
+
+
+-------------- plan --------------------
+2)
+explain what the probem is and why rjmcmc is good at solving it
+3.1)
+give the background context for the probem
+3.2)
+explain how we will build the model to solve the problem
+3.3)
+fit the model and cover the related contex
+3.4)
+evaluate the model
+(3.1 and 3.4 may have subsub sections)
+-----------------------------------------
+
+4)
+
+Summarise what you have learned from the application. Discuss the strengths and weaknesses of the method, what worked well, what did not, any limitations you encountered, and situations in which you would—or would not—recommend using the method.
+
+(can only be planed after the rest is done)

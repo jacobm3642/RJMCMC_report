@@ -1,0 +1,66 @@
+\documentclass[10pt]{article}
+
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{amsmath}
+\usepackage{comment}
+\usepackage[
+  backend=biber,
+  style=apa,
+  hyperref=true,
+]{biblatex}
+
+\addbibresource{references.bib} 
+
+\title{A Report on Reversible-jump Markov chain Monte Carlo}
+\author{Jacob Miller: jmi161 (64562161)}
+\date{26 August 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+\begin{comment}
+Introduce the method.
+What is it about?
+When and why was it proposed? 
+What kinds of problems is it intended to solve?
+\end{comment}
+
+Reversible jump Markov chain Monte Carlo (RJMCMC) is a method for using Markov chain Monte Carlo to sample from the posterior distribution across spaces that vary in dimensions. RJMCMC was originally introduced in \cite{green1995reversible} to solve statistical problems involving inference about objects when the dimension of the object is unknown or varies.  
+
+\section{Method}
+
+\begin{comment}
+Describe the theory behind the method. Introduce the model and its assumptions carefully, and define all notation. Explain the Bayesian formulation, including the likelihood, priors, and quantities of interest.
+
+The aim here is not simply to reproduce equations from a paper or textbook: explain what they mean.
+\end{comment}
+
+Reversible jump Markov chain Monte Carlo (RJMCMC) is an extention of the Metropolis–Hastings algorithm which is is layed out in \textcite{hastings1970monte}. The necessary context to understand RJMCMC is as follows. 
+
+\subsection{The Metropolis–Hastings algorithm}
+
+
+\section{Example}
+
+
+\begin{comment}
+Describe your dataset, identify the research question and explain why the method is appropriate for the problem.
+
+Apply the method and present the results. Do not simply reproduce software output: explain and interpret what you have found. Remember to report uncertainty as well as point estimates, where appropriate.
+
+Include appropriate model checking, diagnostics, or assessment of model fit where relevant to the method you have chosen.
+\end{comment}
+
+\section{Conclusion and Discussion}
+
+\begin{comment}
+Summarise what you have learned from the application. Discuss the strengths and weaknesses of the method, what worked well, what did not, any limitations you encountered, and situations in which you would—or would not—recommend using the method.
+\end{comment}
+
+\printbibliography
+\end{document}

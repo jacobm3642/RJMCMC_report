@@ -1,0 +1,22 @@
+# clangd cache dir
+.cache/
+
+# nix and direnv config
+.direnv/
+.envrc
+
+# where built binarys should live
+build/
+
+# removes potentially copyrighted data
+sources/
+
+# removes gb's of data
+*.fits
+
+# removes hidden files
+.*
+!/.gitignore
+
+*.pdf
+*.out
