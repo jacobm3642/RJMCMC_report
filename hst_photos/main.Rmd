@@ -7,7 +7,184 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(FITSio)
-library(LaplacesDemon)
+library(GeDS)
 ```
+
+```{r}
+mh <- function(log_target, rprop, dprop = NULL, x0, iter = 2000) {
+	x <- matrix(NA, iter + 1, length(x0))
+	x[1, ] <- x0
+	accepted <- 0
+
+	for (i in 1:iter) {
+		cur <- x[i, ]
+		cand <- rprop(cur)
+
+		r <- log_target(cand) - log_target(cur)
+		if (!is.null(dprop)) {
+			r <- r + dprop(cur, cand) - dprop(cand, cur)
+		}
+
+		if (log(runif(1)) < r) {
+			x[i + 1, ] <- cand
+			accepted <- accepted + 1
+		} else {
+			x[i + 1, ] <- cur
+		}
+	}
+
+	list(
+	     chain = drop(x),
+	     acceptance_rate = accepted / iter
+	)
+}
+```
+
+```{r}
+rjmcmc <- function(log_target, rprop, x0, iter = 2000L) {
+	if (length(iter) != 1L || !is.finite(iter) ||
+	    iter < 1 || iter != floor(iter)) {
+		stop("iter must be a positive integer.")
+	}
+
+	chain <- vector("list", iter + 1L)
+	chain[[1L]] <- x0
+	current_log_target <- log_target(x0)
+
+	if (length(current_log_target) != 1L ||
+	    !is.finite(current_log_target)) {
+		stop("The initial state must have a finite log target density.")
+	}
+
+	accepted <- logical(iter)
+	moves <- character(iter)
+
+	for (i in seq_len(iter)) {
+		cur <- chain[[i]]
+		proposal <- rprop(cur)
+		cand <- proposal$state
+		moves[i] <- proposal$move
+
+		candidate_log_target <- log_target(cand)
+
+		if (length(candidate_log_target) != 1L ||
+		    is.na(candidate_log_target) ||
+		    candidate_log_target == Inf) {
+			stop("The candidate log target must be finite or -Inf.")
+		}
+
+		r <- candidate_log_target - current_log_target +
+			proposal$log_reverse - proposal$log_forward +
+			proposal$log_jacobian
+
+		if (length(r) != 1L || is.na(r)) {
+			stop("Invalid acceptance ratio; check proposal probabilities.")
+		}
+
+		if (log(runif(1L)) < r) {
+			chain[[i + 1L]] <- cand
+			current_log_target <- candidate_log_target
+			accepted[i] <- TRUE
+		} else {
+			chain[[i + 1L]] <- cur
+		}
+	}
+
+	list(
+	     chain = chain,
+	     model = vapply(chain, function(s) s$k, integer(1L)),
+	     accepted = accepted,
+	     move = moves,
+	     acceptance_rate = mean(accepted),
+	     acceptance_by_move = tapply(accepted, moves, mean)
+	)
+}
+```
+
+```{r}
+test_rjmcmc_prior <- function(iter = 1e5L, kmax = 5L, lambda = 2,
+			      mu = 1, s = 2, jacobian = TRUE, seed = 1) {
+	set.seed(seed)
+
+	log_target <- function(state) {
+		dpois(state$k, lambda, log = TRUE) +
+			sum(dnorm(state$theta, 0, 1, log = TRUE))
+	}
+
+	move_probs <- function(k) {
+		if (k == 0L) {
+			c(birth = 1, death = 0, update = 0)
+		} else if (k == kmax) {
+			c(birth = 0, death = 0.5, update = 0.5)
+		} else {
+			c(birth = 1 / 3, death = 1 / 3, update = 1 / 3)
+		}
+	}
+
+	log_jac <- if (jacobian) log(s) else 0
+
+	rprop <- function(cur) {
+		k <- cur$k
+		pr <- move_probs(k)
+		move <- sample(names(pr), 1L, prob = pr)
+
+		if (move == "birth") {
+			u <- rnorm(1)
+			list(
+			     state = list(k = k + 1L, theta = c(cur$theta, mu + s * u)),
+			     move = move,
+			     log_forward = log(pr[["birth"]]) + dnorm(u, log = TRUE),
+			     log_reverse = log(move_probs(k + 1L)[["death"]]),
+			     log_jacobian = log_jac
+			)
+		} else if (move == "death") {
+			u <- (cur$theta[k] - mu) / s
+			list(
+			     state = list(k = k - 1L, theta = cur$theta[-k]),
+			     move = move,
+			     log_forward = log(pr[["death"]]),
+			     log_reverse = log(move_probs(k - 1L)[["birth"]]) +
+				     dnorm(u, log = TRUE),
+			     log_jacobian = -log_jac
+			)
+		} else {
+			j <- sample.int(k, 1L)
+			theta <- cur$theta
+			theta[j] <- theta[j] + rnorm(1, 0, 0.5)
+			list(
+			     state = list(k = k, theta = theta),
+			     move = move,
+			     log_forward = 0, log_reverse = 0, log_jacobian = 0
+			)
+		}
+	}
+
+	out <- rjmcmc(log_target, rprop, list(k = 0L, theta = numeric(0)), iter)
+
+	expected <- dpois(0:kmax, lambda)
+	expected <- expected / sum(expected)
+	observed <- tabulate(out$model + 1L, nbins = kmax + 1L) / length(out$model)
+	k_check <- data.frame(
+			      k = 0:kmax, expected = round(expected, 4), observed = round(observed, 4)
+	)
+
+	th1 <- unlist(lapply(out$chain, function(st) if (st$k >= 1L) st$theta[1]))
+
+	list(
+	     k_check = k_check,
+	     max_abs_diff = max(abs(observed - expected)),
+	     theta1_mean_sd = c(mean = mean(th1), sd = sd(th1)),
+	     acceptance_by_move = out$acceptance_by_move
+	)
+}
+```
+
+```{r}
+test_rjmcmc_prior()
+```
+
+```{r}
+coal_mining <- data(coalMining)
+```
+
 
