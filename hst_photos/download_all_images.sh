@@ -1,4 +1,20 @@
-#! /bin/sh 
+#!/usr/bin/env bash
+
+echo "WARNING: This script will download between 10-100 GB of images"
+read -r -p "Do you want to proceed? [y/N] " response
+
+case "$response" in
+  [yY] | [yY][eE][sS])
+    echo "Proceeding..."
+    ;;
+  *)
+    echo "Aborted."
+    exit 1
+    ;;
+esac
+
+set -euo pipefail
+
 curl -f --output  "v1/hlsp_phat_hst_wfc3-ir_12058-m31-b01-f06_f110w_v1_drz.fits" --create-dirs "https://archive.stsci.edu/hlsps/phat/v1/hlsp_phat_hst_wfc3-ir_12058-m31-b01-f06_f110w_v1_drz.fits" 
 curl -f --output  "v1/hlsp_phat_hst_wfc3-uvis_12058-m31-b01-f16_f275w_v1_drz.fits" --create-dirs "https://archive.stsci.edu/hlsps/phat/v1/hlsp_phat_hst_wfc3-uvis_12058-m31-b01-f16_f275w_v1_drz.fits" 
 curl -f --output  "v1/hlsp_phat_hst_acs-wfc_12058-m31-b01-f06_f814w_v1_drz.fits" --create-dirs "https://archive.stsci.edu/hlsps/phat/v1/hlsp_phat_hst_acs-wfc_12058-m31-b01-f06_f814w_v1_drz.fits" 

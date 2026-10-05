@@ -13,5 +13,6 @@ pkgs.mkShell {
     rPackages.MCMCglmm
     rPackages.FITSio
     rPackages.LaplacesDemon
+    rPackages.GeDS
   ];
 }
