@@ -1,15 +1,15 @@
 \documentclass[10pt]{article}
 
-\usepackage{hyperref}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 \usepackage{amsmath}
 \usepackage{comment}
+\usepackage{graphicx}
 \usepackage[
   backend=biber,
   style=apa,
-  hyperref=true,
 ]{biblatex}
+\usepackage{hyperref}
 
 \addbibresource{references.bib} 
 
@@ -30,7 +30,12 @@ When and why was it proposed?
 What kinds of problems is it intended to solve?
 \end{comment}
 
-Reversible jump Markov chain Monte Carlo (RJMCMC) is a method for using Markov chain Monte Carlo to sample from the posterior distribution across spaces that vary in dimensions. RJMCMC was originally introduced in \cite{green1995reversible} to solve statistical problems involving inference about objects when the dimension of the object is unknown or varies.  
+Reversible jump Markov chain Monte Carlo (RJMCMC) is a method for using Markov chain Monte Carlo to sample from the posterior distribution across spaces that vary in dimensions. RJMCMC was originally introduced in \cite{green1995reversible} to solve statistical problems involving inference about objects when the dimension of the object is unknown or varies. Some of the examples given in \textcite{green1995reversible} are: 
+\begin{itemize}
+  \item Bayesian choice between models with different numbers of parameters
+  \item Multiple change-point problems.
+  \item Non-nested regression models.
+\end{itemize} among others. In this report an example will be given of RJMCMC used for a change-point problem on Coal mining data from \textcite{GeDsData} as a demonstration of how RJMCMC can be used. This data will also give a good benchmark as this change point model is a well trodden path allowing for verification of the results.
 
 \section{Method}
 
@@ -40,13 +45,179 @@ Describe the theory behind the method. Introduce the model and its assumptions c
 The aim here is not simply to reproduce equations from a paper or textbook: explain what they mean.
 \end{comment}
 
-Reversible jump Markov chain Monte Carlo (RJMCMC) is an extention of the Metropolis–Hastings algorithm which is is layed out in \textcite{hastings1970monte}. The necessary context to understand RJMCMC is as follows. 
+Reversible jump Markov chain Monte Carlo (RJMCMC) is an extension of the Metropolis–Hastings algorithm which is laid out in \textcite{hastings1970monte}. The necessary context to understand RJMCMC is as follows.
+
+\subsection{The Framing}
+In Bayesian inference the object of interest is the posterior distributions over model parameters so when considering multiple candidate models we can evaluate them as follows. Let \(M\) denote a set of candidate models and for each model (\(m_i\) so that \(m_i \in M\))  there will exist a parameter vector \(\theta^{(i)}\) so that \(\theta^{(i)} \in \Theta_i \). And so the parameter posterior under model \(m_i\) is as follows: 
+
+
+\[p(\theta^{(i)}\mid D, m_i)
+=
+\frac{p(D\mid\theta^{(i)},m_i)\,p(\theta^{(i)}\mid m_i)}
+{p(D\mid m_i)}\]
+
+And the marginal likelihood is:
+
+\[p(D\mid m_i)
+=
+\int_{\Theta_i}
+p(D\mid\theta^{(i)},m_i)
+p(\theta^{(i)}\mid m_i)
+d\theta^{(i)}.\]
+
+This integral is very often analytically intractable making a direct calculation hard. But we can say that \[p(m_i,\theta^{(i)}\mid D) \propto p(D\mid\theta^{(i)},m_i)\ p(\theta^{(i)}\mid m_i)\ p(m_i)\]
+and so the objective is to sample from is \(p(m_i,\theta^{(i)}\mid D)\) (the joint posterior).
+That will allow us to evaluate \(p(m_i\mid D)\) via \[\int_{\Theta_i} p(m_i,\theta^{(i)}\mid D) d\theta^{(i)}\]. 
 
 \subsection{The Metropolis–Hastings algorithm}
+For the purposes of the Metropolis–Hastings algorithm we will fix \(m_i\) so that it can't change and thus we can say \(p(\theta\mid D)\propto p(D\mid\theta) p(\theta)\). We must remember that \(p(\theta\mid D) \equiv p(\theta^{(i)}\mid D,m_i)\) in the context where \(m_i\) is fixed. We will also have some input \(x\) given observed training data \(D\) and the distribution of an unknown outcome \(y\). This gives us \(p(y \mid x, \theta)\) which represents a model’s predictive distribution given parameters \(\theta\). From this even without exact knowledge of \(p(\theta \mid D)\) assuming we can sample this distribution, we know:
 
+\begin{align*}
+p(y\mid x,D)
+= \int p(y\mid x,\theta,D)p(\theta\mid D)d\theta
+\approx \frac{1}{N}\sum_{t=1}^{N}
+p(y\mid x,\theta^{(t)},D)
+\end{align*} (assuming \(y\) is conditionally independent of \(D\) given \(x,\theta\))
+where \(\theta^{(1)}, ... , \theta^{(N)}\) are drawn from the posterior distribution of \(\theta\). This means we can construct a Markov chain such that starting from an initial set of parameters \(\theta^{(0)}\) and a proposal density \(q\) given by \(q(\theta^{*}|\theta^{(t)})\). This Markov chain may or may not have a stationary distribution \(\pi(\theta)\) but if said stationary distribution does exist the Markov chain will converge to it from any initial state. As shown in \textcite{hastings1970monte} we can set transition densities such that \(\pi(\theta)\) is identical to the posterior distribution we are interested in (\(p(\theta \mid D)\)). So if we run the chain to convergence, we can use its output to evaluate the integrals above. One algorithm for performing this operation is Metropolis–Hastings.  
+\begin{algorithm}[h!]
+	\caption{Metropolis–Hastings sampler}
+	\label{alg:mhs}
+	\begin{algorithmic}[1]
+		\State Assign an initial state $\theta^{(0)}$
+		\State Set $t = 0$
+		\State Set $\text{tape } = \{\}$
+		\For{$i = 0; i < \text{number of samples}; i++$}
+			\State Set $\theta^*$ as drawn from $q(\theta^* | \theta^{(t)})$
+			\State Set $u$ as drawn from $U(0, 1)$
+			\If{$u$ $\le$ \Call{Acceptance-prob}{$\theta^{(t)},\theta^*$}}
+				\State Set $\theta^{(t+1)} = \theta^*$
+			\Else
+				\State Set $\theta^{(t+1)} = \theta^{(t)}$
+			\EndIf
+			\State Append $\theta^{(t+1)}$ to $\text{tape}$
+			\State $t++$
+		\EndFor
+		\State \Return{$\text{tape}$}
+		\Statex
+		\Function{Acceptance-prob}{$\theta^{(t)}, \theta^*$}
+			\State Set $a = \min\left\{
+			1,\,
+			\frac{
+			  p(D\mid\theta^*)\,p(\theta^*)\,
+			  q(\theta^{(t)} \mid \theta^*)
+			}{
+			  p(D\mid\theta^{(t)})\,p(\theta^{(t)})\,
+			  q(\theta^* \mid \theta^{(t)})
+			}
+			\right\}$
+			\State \Return $a$
+		\EndFunction
+	\end{algorithmic}
+	\par\smallskip
+{\footnotesize \textit{Note:} This does not exactly follow but was guided by \cite{denison2002bayesian} \par}
+\end{algorithm}
+
+And this is the algorithm that RJMCMC extends. So what changes does RJMCMC make?
+
+\subsection{The move from MH to RJMCMC}
+So as you can see from the algorithm above in Metropolis–Hastings \(\theta\) is of a fixed size and the proposal must map between vectors of the same size. This is ok when the structure is known in advance but there are a large number of problems where that isn't true. And if we want to compare models with different numbers of parameters this algorithm will just not work. In the change-point setting for example a model with k change-points has 2k+1 parameters (the k positions and k+1 rates) and a model with k+1 change-points has 2k+3. A standard MH proposal cannot jump between these two spaces because they have different dimensions. But comparing these two models and even being able to jump between them would be useful and this is the problem RJMCMC solves. 
+
+\subsection{RJMCMC}
+\label{sec:rjmcmc}
+
+The ingenious insight that \textcite{green1995reversible} makes is to make such jumps between model dimensions reversible by introducing auxiliary random variables to equalise the dimensions on both sides of the move. This allows us to maintain the detailed balance of the jumps while moving between dimensions. For example suppose the current state \(\theta\) lives in dimension d and the proposed state \(\theta^*\) lives in dimension \(d^* > d\). We draw an auxiliary variable \(u\) from a density \(g(u)\) of dimension \(d^*- d\), so that \((\theta, u)\) and \(\theta^*\) both have dimension \(d^*\). We then define a bijection \(T\) such that $(\theta^*, u^*) = T(\theta, u)$, where u* plays the symmetric role on the reverse move. Because \(T\) is invertible the move is reversible.
+
+Now \(T\) represents a nonlinear transformation of the variables in order for the acceptance probability to be unbiased we must account for the stretching and compression of the vector space of \(\theta\). In order to solve this problem we use a Jacobian as part of our new acceptance ratio. And so the new acceptance ratio is $$\alpha = \min\!\left(1, \frac{p(\theta^* \mid D)}{p(\theta\mid D)} \cdot \frac{g(u^*)}{g(u)} \cdot \frac{q_\text{reverse}}{q_\text{forward}} \cdot \left|\frac{\partial T}{\partial(\theta,u)}\right| \right)$$ or as stated in \textcite{green1995reversible} \[
+\alpha = \min\!\left\{1,\;
+\frac{\pi(k', \theta^{(k')})}{\pi(k, \theta^{(k)})}
+\cdot
+\frac{j_{k' \to k}\; g_{k' \to k}(u')}{j_{k \to k'}\; g_{k \to k'}(u)}
+\cdot
+\left|\frac{\partial(\theta^{(k')}, u')}{\partial(\theta^{(k)}, u)}\right|
+\right\}
+\]
+Seeing these next to each other helps us see that the acceptance probability is \[\min \{1, \text{likelihood} \cdot \text{prior} \cdot \text{proposal ratio} \cdot \text{Jacobian}\}\]
+It is worth noting that when $T$ is just the identity meaning that the new parameter is inserted directly with no nonlinear transformation. Then the Jacobian is 1 and the ratio reduces to ordinary MH with an extra move-probability factor. And we will take advantage of this in the example (Section~\ref{sec:example}). 
+
+The last big change we have to make to MH is how we propose our jumps. Now the Jacobian allows for great flexibility when it comes to construction of our proposal function but for this case we will consider a proposal function with only $3$ types of moves those being Birth, Death and Update and for simplicity we will assume the first move must be birth and the last move can't be birth. Now we just need to define how to represent our new jumps and we can do this by changing our state from a parameter vector ($\theta$) to a model indicator and parameter vector, pair ($k, \theta$).
+
+\begin{algorithm}[h!]
+	\caption{Reversible Jump Metropolis–Hastings sampler}
+	\label{alg:rjmcmc}
+	\begin{algorithmic}[1]
+		\State Assign an initial state $(k^{(0)}, \theta^{(0)})$
+		\State Set $t = 0$
+		\State Set $\text{tape } = \{\}$
+		\For{$i = 0; i < \text{number of samples}; i++$}
+			\State Set move type $m$ as drawn from $j_{k^{(t)} \to \cdot}$
+			\State Set auxiliary variable $u$ as drawn from $g_{m}(u)$
+			\State Set $(k^*, \theta^*, u^*) = T_m(k^{(t)}, \theta^{(t)}, u)$
+			\State Set $v$ as drawn from $U(0, 1)$
+			\If{$v$ $\le$ \Call{RJ-Acceptance-prob}{$(k^{(t)},\theta^{(t)}),(k^*,\theta^*),u,u^*,m$}}
+				\State Set $(k^{(t+1)}, \theta^{(t+1)}) = (k^*, \theta^*)$
+			\Else
+				\State Set $(k^{(t+1)}, \theta^{(t+1)}) = (k^{(t)}, \theta^{(t)})$
+			\EndIf
+			\State Append $(k^{(t+1)}, \theta^{(t+1)})$ to $\text{tape}$
+			\State $t++$
+		\EndFor
+		\State \Return{$\text{tape}$}
+		\Statex
+		\Function{RJ-Acceptance-prob}{$(k,\theta),(k^*,\theta^*),u,u^*,m$}
+			\State Set $a = \min\left\{
+			1,\,
+			\frac{
+			  \pi(k^*, \theta^*)\,
+			  j_{k^* \to k}\,
+			  g_{m'}(u^*)
+			}{
+			  \pi(k, \theta)\,
+			  j_{k \to k^*}\,
+			  g_{m}(u)
+			}
+			\cdot
+			\left|\frac{\partial(\theta^*, u^*)}{\partial(\theta, u)}\right|
+			\right\}$
+			\State \Return $a$
+		\EndFunction
+	\end{algorithmic}
+\end{algorithm}
+
+ 
+\begin{algorithm}[h!]
+    \caption{Three-move proposal function}
+    \label{alg:rprop}
+    \begin{algorithmic}[1]
+        \Function{rprop}{$k, \theta$}
+            \If{$k = 0$}
+                \State Set $m = \text{birth}$
+            \ElsIf{$k = k_{\max}$}
+                \State Set $m$ as drawn from $\{\text{death}, \text{update}\}$ with equal probability
+            \Else
+                \State Set $m$ as drawn from $\{\text{birth}, \text{death}, \text{update}\}$ with equal probability
+            \EndIf
+            \If{$m = \text{birth}$}
+                \State Set $u$ as drawn from $g(u)$
+                \State Set $(\theta^*, u^*) = T_{\text{birth}}(\theta, u)$ \Comment{insert $u$ into $\theta$}
+            \ElsIf{$m = \text{death}$}
+                \State Set $j$ as drawn from $\{1, \ldots, k\}$ uniformly
+                \State Set $u^* = \theta_j$
+                \State Set $\theta^* = \theta \setminus \{\theta_j\}$
+                \Comment{remove $\theta_j$, recover it as $u^*$ for reverse}
+            \Else \Comment{update}
+                \State Set $j$ as drawn from $\{1, \ldots, k\}$ uniformly
+                \State Set $\theta^*_j$ as drawn from $q(\theta^*_j \mid \theta_j)$
+                \State Set $\theta^* = \theta$ with $\theta_j$ replaced by $\theta^*_j$
+            \EndIf
+            \State \Return $(k^*, \theta^*, u, u^*, m)$
+        \EndFunction
+    \end{algorithmic}
+\end{algorithm}
+
+So if you use the three-move proposal function (Algorithm~\ref{alg:rprop}) as the proposal function in RJMCMC (Algorithm~\ref{alg:rjmcmc}) it should make clear how to construct a sampler from the abstract framework. The key point is that once the move types, their proposal densities, and the bijection T are defined, the acceptance ratio follows directly from the Green formula. And that example should make it clear how this fits together. 
 
 \section{Example}
-
+\label{sec:example}
 
 \begin{comment}
 Describe your dataset, identify the research question and explain why the method is appropriate for the problem.
@@ -56,11 +227,131 @@ Apply the method and present the results. Do not simply reproduce software outpu
 Include appropriate model checking, diagnostics, or assessment of model fit where relevant to the method you have chosen.
 \end{comment}
 
+For this example we will apply RJMCMC to a one-dimensional multiple change-point problem. We will follow in the footprints of \cite{green1995reversible} section $4.1$ with a few changes. The full code can be found in the subdirectory \texttt{coal\_mining} in this \href{https://github.com/jacobm3642/RJMCMC_report}{github repo}. The data we will use is the \texttt{coalMining} data set from \cite{GeDsData}. \texttt{coalMining} is a dataset of annual coal mining disasters in the UK from 1851 to 1962 (112 years). In each row is one year \texttt{years} and a count \texttt{counts} which represent the number of mining disasters per year for each year.
+
+\subsection{The plan}
+We will implement RJMCMC as a function in R (in \texttt{main.Rmd}). The RJMCMC function will be the shell of the model as we will implement the proposal function \texttt{rprop} and the log target \texttt{log\_target\_coal} and pass them to our RJMCMC algorithm. The model itself will be constructed from 3 parts shown in Table~\ref{tab:changepoints} and we will assume the disaster count can be modeled as a Poisson with a rate that is piecewise-constant.
+
+\begin{table}[ht]
+\centering
+\caption{The unknown variables}
+\label{tab:changepoints}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Variable} & \textbf{What it represents} \\ \hline
+$k$ & The current number of changepoints \\ \hline
+$\{t_1, t_2, \dots, t_k \}$ & The years at which the rate changed (can be any year between 1852 and 1962) \\ \hline
+$\lambda_0, \lambda_1, \dots, \lambda_k$ & The Poisson rate per segment (where $\lambda_0$ is the rate before the first changepoint) \\ \hline
+\end{tabular}
+\end{table}
+
+
+and in Table~\ref{tab:Prior} we will list out the prior for each variable.  
+
+
+\begin{table}[ht]
+\centering
+\caption{The prior for the unknown}
+\label{tab:Prior}
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Variable} & \textbf{Prior} \\ \hline
+$k$ & is a Poisson(\texttt{k\_prior} $= 3$) \\ \hline
+$t_i$ & is a Uniform over ($1852, 1962$) \\ \hline
+$\lambda_i$ & is a Gamma(2, 1)\\ \hline
+\end{tabular}
+\end{table}
+
+\subsection{The model}
+Now we know all of the moving parts we can construct the model.
+
+So from the unknowns and their priors we can construct the log target \begin{align*}
+\log p(k, \tau, \lambda \mid \text{data}) \propto 
+& \sum_{j} \sum_{t \in \text{seg } j} \log \text{Poisson}(\text{count}_t \mid \lambda_j) && \leftarrow \text{log likelihood} \\
+& + \log \text{Poisson}(k \mid k_{\text{prior}}) && \leftarrow \text{prior on } k \\
+& - \log C(N_t, k) && \leftarrow \text{prior on } t \text{ positions} \\
+& + \sum_{j} \log \text{Gamma}(\lambda_j \mid a_{\text{rate}}, b_{\text{rate}}) && \leftarrow \text{prior on rates}
+\end{align*}
+
+Next we must construct the proposal function. The coal mining sampler uses four move types: birth, death, move changepoint, and update rate.
+The birth move increases \(k\) by one, and works as follows. A new changepoint position \(t^*\) is drawn uniformly at random from all candidate years not already occupied, and a new rate \(\lambda^*\) is drawn from the prior \(\text{Gamma}(a_\text{rate}, b_\text{rate})\). Both are inserted into the state in sorted order with \(\lambda^*\) becoming the rate for the right-hand segment of the split. For the acceptance ratio, the forward proposal density is \(p_\text{birth} \times \frac{1}{|\text{avail}|} \times \text{Gamma}(\lambda^* \mid a_\text{rate}, b_\text{rate})\), and the reverse is \(p_\text{death}(k+1) \times \frac{1}{k+1}\) with the probability that a death move at \(k+1\) changepoints would undo exactly this step. The \(\text{Gamma}(\lambda^*)\) density in the forward proposal cancels with the corresponding term in the log-target increment from the rate prior and so the net acceptance ratio simplifies to depend only on the likelihood ratio and the prior on \(k\) ratio. Since \(\lambda^*\) is inserted directly with no nonlinear transformation the Jacobian is 1 and contributes nothing to the log acceptance ratio.
+
+
+The death move is the exact reverse of birth in which we pick one of the \(k\) changepoints uniformly and remove it along with its associated rate.
+
+
+The move changepoint step picks one of the \(k\) changepoints uniformly and replaces it with a new year drawn uniformly from the unused positions. Because this proposal is symmetric, the forward and reverse densities are equal and cancel, so the acceptance ratio reduces to \(\min\{1, \exp(\log\pi(\text{new}) - \log\pi(\text{cur}))\}\).
+
+
+The update rate step picks one segment \(j\) uniformly and resamples its rate from the conjugate full conditional \(\lambda_j \mid \tau, \text{data} \sim \text{Gamma}(a_\text{rate} + n_j,\; b_\text{rate} + T_j)\), where \(n_j\) is the total accident count in segment \(j\) and \(T_j\) is its length in years. Because the proposal samples exactly from the full conditional, the forward and reverse densities cancel and the move is accepted with probability 1.
+
+So the acceptance probability for all four moves is (you may note that this is the same as in Section~\ref{sec:rjmcmc}):
+\begin{align*}
+\log r = & \log\pi(\text{candidate}) - \log\pi(\text{current}) \\
+         & + \log q_\text{reverse} - \log q_\text{forward} \\
+         & + \log|\text{Jacobian}|
+\end{align*}
+For within-dimension moves (\texttt{move\_cp}, \texttt{update\_lam}) the Jacobian term is 0 and this reduces to ordinary MH. For birth and death the log-Jacobian term is also 0 here because the new rate parameter is inserted without any nonlinear transformation.
+
+Now that we have constructed both our log target and our proposal function, looking at Algorithm~\ref{alg:rjmcmc} should make it clear that we now have all the building blocks of our model and need only put them together. See \texttt{main.Rmd} \href{https://github.com/jacobm3642/RJMCMC_report}{here} for the R implementation of the theory we have just walked through.
+
+\subsection{The results}
+
+Now that we have run the model implemented above, we present the results. We will start with diagnostic plots for the model. 
+
+First Figure~\ref{fig:trace_k} shows the value of \(k\) over the iterations. What we want to see in Figure~\ref{fig:trace_k} is a lot of movement as this indicates that a lot of birth and death proposals are being accepted. This means the model is trying a lot of different configurations in order to settle on the best one. This is what mixing means in this context and is how we know we aren't stuck in a local minimum. What we also want to see is that there is a relatively consistent average and that allows us to know that there is a value of \(k\) that the model converges to.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=\linewidth]{res_img/trace_k.png}
+  \caption{Trace plot of the number of changepoints \(k\) over 50{,}000 iterations. The chain mixes well across values of \(k\), indicating good exploration of the model space.}
+  \label{fig:trace_k}
+\end{figure}
+
+Next let's look at Figure~\ref{fig:k_posterior} this plot shows the posterior distribution of the number of changepoints. What we want to see is a consistent curve because even though our proposals are random not every proposal gets accepted. So if we see a consistent curve it means that the model is able to explore a large number of values of \(k\) (in different places) and that gives us confidence that the chain is converging on the true posterior of \(k\). And if we look at Figure~\ref{fig:k_posterior} that's exactly what we see.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.8\linewidth]{res_img/k_posterior.png}
+  \caption{Posterior distribution of the number of changepoints \(k\). The mass is concentrated at \(k=3\), indicating strong evidence for 3 changes in the disaster rate.}
+  \label{fig:k_posterior}
+\end{figure}
+
+Next on to Figure~\ref{fig:tau_marginal}, this figure shows the locations at which the change points tended to be. What we want to see is that there is low random noise throughout the plot meaning that all the positions have been tried. But we want a number of large spikes which shows locations at which a proposed change point is very likely to get accepted. The large spikes show the points at which a change point would accurately model the data and the low noise across the bottom gives us confidence that all the possible points have been tried.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.8\linewidth]{res_img/tau_marginal.png}
+  \caption{Marginal posterior density of changepoint locations across all sampled states (after burn-in). The sharp peak around 1890 and 1950 identifies these are the most probable times for a rate shift.}
+  \label{fig:tau_marginal}
+\end{figure}
+
+Now on to the last figure (Figure~\ref{fig:fitted_rate}). This shows the final fitted model in this Figure what we want to see is the final model follows the observed annual coal mining disasters to at least a reasonable degree and that the 95\% credible interval looks reasonable as well. And looking at the point that is what we see. Because this is a well trodden problem we can compare our plot to the one given in \textcite{green1995reversible} and we see that they line up quite well even though we took a bit of a different path.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=\linewidth]{res_img/fitted_rate.png}
+  \caption{Observed annual coal mining disasters (grey bars) with the posterior mean Poisson rate (blue line) and 95\% credible interval (shaded). The rate drops sharply around 1890 and remains low thereafter.}
+  \label{fig:fitted_rate}
+\end{figure}
+
 \section{Conclusion and Discussion}
 
 \begin{comment}
 Summarise what you have learned from the application. Discuss the strengths and weaknesses of the method, what worked well, what did not, any limitations you encountered, and situations in which you would—or would not—recommend using the method.
 \end{comment}
+
+Overall RJMCMC worked extremely well for the coal mining disaster problem with all the diagnostic plots and the final fit looking good. Overall making this report and fitting the model has taught me quite a lot, everything from just getting more comfortable with bigger R functions to how this report was made with LaTeX and Biber. But mainly we will discuss the method.
+
+\subsection{The Good}
+RJMCMC is a very flexible and useful way to fit a model. It handles unknown model dimension perfectly and even though I didn't cover it it can handle some quite complicated move types. It also does both model selection and fit in one which is extremely cool. The math might seem quite complicated but once you get the idea that it is doing the exact same thing as Metropolis–Hastings but in the joint posterior defined over the disjoint union of parameter spaces it makes a lot more sense. As well as the posterior of \(k\) gives you the uncertainty over the number of changepoints as well. So there are a lot of really nice properties of RJMCMC that make it really nice to work with once it's implemented.
+\subsection{The Bad}
+First the proposal design needs to be well thought out and it can be very difficult to make a design with good move probabilities and good updates. This is compounded by the fact that a bad proposal design can be very hard to debug and if the chain doesn't mix right it just won't work. Second the chain can be very slow to converge this is because while its cool that it samples the joint posterior that posterior can be very large and complex which slows down convergence. It also just very finicky to implement and there is no good library implementation in R (there did exist one in C and one in Fortran but to the best of my knowledge they have succumbed to link rot). Part of the reason RJMCMC is so finicky is that the Jacobian and forward/reverse densities are so easy to get wrong.
+\subsection{The Ugly}
+The main thing that makes RJMCMC hard to work with is that it can be hard to reason about and that makes diagnosing the problems quite hard. For example the trace plot of \(k\) can look perfectly fine but the chain could still be stuck in a subset of configurations. Part of this is that the prior of \(k\) can be very strong and overpower the rest of your model if not picked very carefully.
+
+\subsection{When to use RJMCMC}
+RJMCMC is most useful when a problem just can't be solved by a simpler MCMC method. Using RJMCMC is a lot of extra work and requires more caution when selecting the priors but for this extra effort you get an extremely powerful algorithm that can solve really hard problems. So you should use it when the model dimension is genuinely unknown like for example change-point detection, mixture models with unknown number of components and model selection between non-nested models. I would avoid RJMCMC when we know or it would be trivial to find the model dimension. I would also avoid it when the same thing can be accomplished via a simpler algorithm like for example dimension reduction with LASSO in linear regression (since setting a parameter to 0 is effectively the same as removing it).
 
 \printbibliography
 \end{document}

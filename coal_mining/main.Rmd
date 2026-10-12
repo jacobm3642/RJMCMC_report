@@ -187,4 +187,234 @@ test_rjmcmc_prior()
 coal_mining <- data(coalMining)
 ```
 
+```{r}
+years  <- coalMining$years
+counts <- coalMining$accidents
 
+year_min <- min(years)
+year_max <- max(years)
+all_tau  <- seq(year_min + 1L, year_max, 1L)
+N_tau    <- length(all_tau)
+
+
+a_rate  <- 2;  b_rate <- 1
+kmax_cp <- 10L;  k_prior <- 3
+
+seg_stats <- function(tau, k) {
+	breaks <- c(year_min - 1L, sort(tau), year_max)
+	lapply(seq_len(k + 1L), function(j) {
+		       mask <- years > breaks[j] & years <= breaks[j + 1L]
+		       list(n = sum(counts[mask]), T = sum(mask))
+	})
+}
+
+log_target_coal <- function(state) {
+	k      <- state$k
+	tau    <- state$tau
+	lambda <- state$lambda
+	breaks <- c(year_min - 1L, sort(tau), year_max)
+	ll <- 0
+	for (j in seq_len(k + 1L)) {
+		mask <- years > breaks[j] & years <= breaks[j + 1L]
+		ll   <- ll + sum(dpois(counts[mask], lambda[j], log = TRUE))
+	}
+	dpois(k, k_prior, log = TRUE) -
+		lchoose(N_tau, k) +
+		sum(dgamma(lambda, a_rate, rate = b_rate, log = TRUE)) +
+		ll
+}
+
+move_probs_coal <- function(k) {
+	if (k == 0L)
+		c(birth = 1, death = 0, move_cp = 0, update_lam = 0)
+	else if (k >= kmax_cp)
+		c(birth = 0, death = 1/3, move_cp = 1/3, update_lam = 1/3)
+	else
+		c(birth = 1/4, death = 1/4, move_cp = 1/4, update_lam = 1/4)
+}
+
+rprop_coal <- function(cur) {
+	k      <- cur$k
+	tau    <- cur$tau
+	lambda <- cur$lambda
+	pr     <- move_probs_coal(k)
+	move   <- sample(names(pr), 1L, prob = pr)
+
+	if (move == "birth") {
+		avail    <- setdiff(all_tau, tau)
+		tau_star <- sample(avail, 1L)
+		lam_star <- rgamma(1L, a_rate, rate = b_rate)
+		m        <- sum(tau < tau_star)
+		new_tau  <- sort(c(tau, tau_star))
+		new_lam  <- append(lambda, lam_star, after = m + 1L)
+		pr_new   <- move_probs_coal(k + 1L)
+		list(
+		     state        = list(k = k + 1L, tau = new_tau, lambda = new_lam),
+		     move         = move,
+		     log_forward  = log(pr[["birth"]]) + log(1 / length(avail)) +
+			     dgamma(lam_star, a_rate, rate = b_rate, log = TRUE),
+		     log_reverse  = log(pr_new[["death"]]) + log(1 / (k + 1L)),
+		     log_jacobian = 0
+		)
+	} else if (move == "death") {
+		j       <- sample.int(k, 1L)
+		lam_rem <- lambda[j + 1L]
+		new_tau <- tau[-j]
+		new_lam <- lambda[-(j + 1L)]
+		pr_new  <- move_probs_coal(k - 1L)
+		avail_after <- setdiff(all_tau, new_tau)
+		list(
+		     state        = list(k = k - 1L, tau = new_tau, lambda = new_lam),
+		     move         = move,
+		     log_forward  = log(pr[["death"]]) + log(1 / k),
+		     log_reverse  = log(pr_new[["birth"]]) + log(1 / length(avail_after)) +
+			     dgamma(lam_rem, a_rate, rate = b_rate, log = TRUE),
+		     log_jacobian = 0
+		)
+	} else if (move == "move_cp") {
+		j       <- sample.int(k, 1L)
+		avail   <- setdiff(all_tau, tau)
+		tau_new <- sample(avail, 1L)
+		list(
+		     state        = list(k = k, tau = sort(c(tau[-j], tau_new)), lambda = lambda),
+		     move         = move,
+		     log_forward  = 0, log_reverse = 0, log_jacobian = 0
+		)
+	} else { 
+		j       <- sample.int(k + 1L, 1L)
+		s       <- seg_stats(tau, k)[[j]]
+		new_lam    <- lambda
+		new_lam[j] <- rgamma(1L, a_rate + s$n, rate = b_rate + s$T)
+		list(
+		     state        = list(k = k, tau = tau, lambda = new_lam),
+		     move         = move,
+		     log_forward  = dgamma(new_lam[j], a_rate + s$n, rate = b_rate + s$T, log = TRUE),
+		     log_reverse  = dgamma(lambda[j],  a_rate + s$n, rate = b_rate + s$T, log = TRUE),
+		     log_jacobian = 0
+		)
+	}
+}
+
+set.seed(42)
+coal_init <- list(k = 1L, tau = 1900L, lambda = c(3.0, 1.0))
+coal_out  <- rjmcmc(log_target_coal, rprop_coal, coal_init, iter = 50000L)
+
+cat("Acceptance rate:", coal_out$acceptance_rate, "\n")
+cat("Acceptance by move:\n");  print(coal_out$acceptance_by_move)
+
+k_post <- coal_out$model
+cat("\nPosterior on number of changepoints:\n")
+print(prop.table(table(k_post)))
+
+
+k1_chains <- coal_out$chain[k_post == 1L]
+if (length(k1_chains) > 0) {
+	tau1 <- sapply(k1_chains, function(s) s$tau)
+	cat("\nPosterior mean changepoint (k=1 states):", mean(tau1), "\n")
+	png("../res_img/tau1_posterior.png", width = 800, height = 500)
+	hist(tau1, breaks = 30, main = "Posterior of changepoint | k=1",
+	     xlab = "Year", col = "steelblue", border = "white",
+	     cex.main = 1.4, cex.lab = 1.2, cex.axis = 1.1)
+	dev.off()
+	hist(tau1, breaks = 30, main = "Posterior of changepoint | k=1",
+	     xlab = "Year", col = "steelblue", border = "white",
+	     cex.main = 1.4, cex.lab = 1.2, cex.axis = 1.1)
+}
+```
+
+```{r}
+png("../res_img/trace_k.png", width = 800, height = 500)
+plot(k_post, type = "l", col = "steelblue",
+     main = "Trace plot of k", xlab = "Iteration", ylab = "k",
+     lwd = 0.3, cex.main = 1.4, cex.lab = 1.2, cex.axis = 1.1)
+abline(h = median(k_post), col = "firebrick", lty = 2)
+legend("topright", legend = paste("Median k =", median(k_post)),
+       col = "firebrick", lty = 2, bty = "n", cex = 1.1)
+dev.off()
+plot(k_post, type = "l", col = "steelblue",
+     main = "Trace plot of k", xlab = "Iteration", ylab = "k",
+     lwd = 0.3, cex.main = 1.4, cex.lab = 1.2, cex.axis = 1.1)
+abline(h = median(k_post), col = "firebrick", lty = 2)
+legend("topright", legend = paste("Median k =", median(k_post)),
+       col = "firebrick", lty = 2, bty = "n", cex = 1.1)
+```
+
+```{r}
+k_table <- prop.table(table(k_post))
+png("../res_img/k_posterior.png", width = 800, height = 500)
+barplot(k_table, col = "steelblue", border = "white",
+	main = "Posterior distribution of number of changepoints",
+	xlab = "k", ylab = "Posterior probability",
+	cex.main = 1.4, cex.lab = 1.2, cex.axis = 1.1, cex.names = 1.1)
+dev.off()
+barplot(k_table, col = "steelblue", border = "white",
+	main = "Posterior distribution of number of changepoints",
+	xlab = "k", ylab = "Posterior probability",
+	cex.main = 1.4, cex.lab = 1.2, cex.axis = 1.1, cex.names = 1.1)
+```
+
+```{r}
+burnin  <- 10000L
+idx     <- seq(burnin + 1L, length(coal_out$chain))
+chain_s <- coal_out$chain[idx]
+
+fitted <- sapply(chain_s, function(st) {
+			 k      <- st$k
+			 tau    <- st$tau
+			 lambda <- st$lambda
+			 breaks <- c(year_min - 1L, sort(tau), year_max)
+			 rate   <- numeric(length(years))
+			 for (j in seq_len(k + 1L)) {
+				 mask       <- years > breaks[j] & years <= breaks[j + 1L]
+				 rate[mask] <- lambda[j]
+			 }
+			 rate
+	})
+
+post_mean <- rowMeans(fitted)
+post_lo   <- apply(fitted, 1, quantile, 0.025)
+post_hi   <- apply(fitted, 1, quantile, 0.975)
+
+png("../res_img/fitted_rate.png", width = 800, height = 500)
+plot(years, counts, type = "h", col = "grey70", lwd = 2,
+     main = "Coal mining disasters with posterior fitted rate",
+     xlab = "Year", ylab = "Accidents",
+     cex.main = 1.4, cex.lab = 1.2, cex.axis = 1.1)
+polygon(c(years, rev(years)), c(post_hi, rev(post_lo)),
+	col = adjustcolor("steelblue", alpha.f = 0.3), border = NA)
+lines(years, post_mean, col = "steelblue", lwd = 2)
+legend("topright", legend = c("Observed", "Posterior mean rate", "95% CI"),
+       col = c("grey70", "steelblue", adjustcolor("steelblue", 0.3)),
+       lty = c(1, 1, NA), lwd = c(2, 2, NA),
+       pch = c(NA, NA, 15), pt.cex = 1.5, bty = "n", cex = 1.1)
+dev.off()
+plot(years, counts, type = "h", col = "grey70", lwd = 2,
+     main = "Coal mining disasters with posterior fitted rate",
+     xlab = "Year", ylab = "Accidents",
+     cex.main = 1.4, cex.lab = 1.2, cex.axis = 1.1)
+polygon(c(years, rev(years)), c(post_hi, rev(post_lo)),
+	col = adjustcolor("steelblue", alpha.f = 0.3), border = NA)
+lines(years, post_mean, col = "steelblue", lwd = 2)
+legend("topright", legend = c("Observed", "Posterior mean rate", "95% CI"),
+       col = c("grey70", "steelblue", adjustcolor("steelblue", 0.3)),
+       lty = c(1, 1, NA), lwd = c(2, 2, NA),
+       pch = c(NA, NA, 15), pt.cex = 1.5, bty = "n", cex = 1.1)
+```
+
+```{r}
+all_tau_post <- unlist(lapply(chain_s, function(st) st$tau))
+if (length(all_tau_post) > 0) {
+	png("../res_img/tau_marginal.png", width = 800, height = 500)
+	hist(all_tau_post, breaks = seq(year_min, year_max, 1),
+	     freq = FALSE, col = "steelblue", border = "white",
+	     main = "Marginal posterior density of changepoint locations",
+	     xlab = "Year", ylab = "Density",
+	     cex.main = 1.4, cex.lab = 1.2, cex.axis = 1.1)
+	dev.off()
+	hist(all_tau_post, breaks = seq(year_min, year_max, 1),
+	     freq = FALSE, col = "steelblue", border = "white",
+	     main = "Marginal posterior density of changepoint locations",
+	     xlab = "Year", ylab = "Density",
+	     cex.main = 1.4, cex.lab = 1.2, cex.axis = 1.1)
+}
+```
