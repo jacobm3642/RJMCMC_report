@@ -3,7 +3,7 @@
 mkdir res_img
 
 pushd coal_mining
-Rscript -e "rmarkdown::render('coal_mining/main.Rmd')"
+Rscript -e "rmarkdown::render('main.Rmd')"
 popd
 
 pdflatex project.tex
