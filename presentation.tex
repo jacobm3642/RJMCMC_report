@@ -1,0 +1,70 @@
+\documentclass[aspectratio=169]{beamer}
+
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[backend=biber, style=apa]{biblatex}
+\addbibresource{references.bib}
+
+
+\usecolortheme{seahorse}
+\setbeamertemplate{navigation symbols}{}
+
+\title{Reversible-jump Markov chain Monte Carlo (RJMCMC)}
+\author{Jacob Miller}
+\date{2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{frame}{What is RJMCMC}
+RJMCMC is an extension of Metropolis--Hastings with two major changes:
+\begin{itemize}
+  \item How proposals are generated
+    \begin{itemize}
+      \item $\theta$ to $(m_i, \theta^{(i)})$
+    \end{itemize}
+  \item The acceptance probability
+    \begin{itemize}
+      \item $\min \{1, \text{likelihood} \cdot \text{prior} \cdot \text{proposal ratio}\}$ to $\min \{1, \text{likelihood} \cdot \text{prior} \cdot \text{proposal ratio} \cdot \text{Jacobian}\}$\\
+      {\small \textit{(proposal ratio usually cancels in MH)}}
+    \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Why is RJMCMC useful}
+Standard MCMC fixes model dimension. RJMCMC samples the posterior over the union of all parameter spaces and so:
+\begin{itemize}
+  \item Model selection and parameter estimation are preformed at once
+  \item Dimension can be completely unknown 
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Coal Mining example}
+UK coal mining disasters 1851--1962. How many rate changes occurred, and when?
+\begin{itemize}
+  \item $k$: number of change-points
+  \item $\{t_1, \dots, t_k\}$: years at which the rate changed
+  \item $\lambda_0, \dots, \lambda_k$: Poisson rate per segment
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Distribution of Accepted Change Points}
+  \centering
+  \includegraphics[width=0.9\linewidth]{res_img/tau_marginal.png}
+\end{frame}
+
+\begin{frame}{Fitted Model}
+  \centering
+  \includegraphics[width=0.9\linewidth]{res_img/fitted_rate.png}
+\end{frame}
+
+\begin{frame}{When not to use RJMCMC}
+RJMCMC is powerful but expensive and finicky to get right and so don't use it when:  
+\begin{itemize}
+  \item When model dimension is known or easy to find
+  \item When variable selection or simpler algorithm will suffice
+\end{itemize}
+\end{frame}
+
+\end{document}

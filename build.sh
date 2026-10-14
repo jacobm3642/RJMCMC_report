@@ -11,5 +11,12 @@ biber project
 pdflatex project.tex
 pdflatex project.tex
 
-rm project.aux project.bcf project.log project.run.xml project.blg project.bbl project.fls project.fdb_latexmk
+rm -f project.aux project.bcf project.log project.run.xml project.blg project.bbl project.fls project.fdb_latexmk
+
+pdflatex presentation.tex
+biber presentation
+pdflatex presentation.tex
+pdflatex presentation.tex
+
+rm -f presentation.aux presentation.bcf presentation.log presentation.run.xml presentation.blg presentation.bbl presentation.nav presentation.snm presentation.toc presentation.fls presentation.fdb_latexmk
 clear
