@@ -29,5 +29,5 @@ These files are where I store notes and anything I want easy access to.
 These files are just to help make working with this repo easier.
 
 
-`hst_photos` This stores the r project that makes up all the code.
+`coal_mining` This stores the r project that makes up all the code.
 
